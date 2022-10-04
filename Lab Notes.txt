@@ -1,0 +1,486 @@
+NACHOS NOTES : SC2005 : NANYANG TECHNOLOGICAL UNIVERSITY : IDEALLY VIEW WITH MS PGOTHIC FONT SIZE 12 UTF-8 : BEST VIEWED IN NOTEPAD++
+　　　　　　　　　　　　　　　　　　 　 　 ,.､
+　　　　 　 　　 　_,,... -─-- ､.,_　　　/ヽ,ヽ,
+　　　　　　,.. '"´　　　　　　　　　｀ヽ/::::/ヽ､>
+　　　　 ／ 　　　　　　 　 　 　 　　/:::::::::／ヽ.
+　　　 ,.' 　 ,　　　　　　　　　　　 ヽ!｀ヾイ:::::::::::!
+　 　 ,' 　 /　　/ __ ! ./　|　/|__」_　',___!/Y´i￣
+　　 i.　 ,' 　 7´i　/|/ 　 !/　!　 ﾉ｀ !　|　:　 !
+　　 i 　 !　 /ｧ'´｀ヽ　　　　ｧ'"´ ｀ヽ!　|.　　 |
+　　 ! 　 !　/i 　 （）　　　　　（）　 　ﾚ' |　 　 |
+　　.レﾍﾚ',! `　　　　　　　 　　　- '/　!　　　|
+　　 　 /⊂⊃　 　rｧ─- ､　　　⊂⊃.!　 i　 |
+　　　 ,'　 ﾄ､,　　　!　　　　）　　 /.　 / 　 !　 !
+　　　 i　ノイ i＞ .､.,,______　 　イi　 /　　ﾊ.　|
+　 　  .レ'´ ﾚ'ヽ. 　.,.ｲ〈 i____,.ノ ,|／ﾚﾍ/　 V
+　　　　　　　 　｀7 i::ヽﾚム　/:::::::/｀ヽ.
+　　　　　　　　 /　 !::::::くﾝ-'::::::::/ 　 　 ':,
+　　　　　　　／ 　,'::::::::::::::::::::::::i　　　 　 i
+
+"I paid afew grand for this?" 
+ 
+
+
+GENERAL NOTES:
+/*
+- Universal pointers used by many .cc files: see in system.cc
+
+IE:
+Thread *currentThread;			// the thread we are running now
+Thread *threadToBeDestroyed;  		// the thread that just finished
+Scheduler *scheduler;			// the ready list
+Interrupt *interrupt;			// interrupt status
+Statistics *stats;			// performance metrics
+Timer *timer			// the hardware timer device,
+					// for invoking context switches
+^ All in system.cc
+
+Use these pointers in place of 'this' when calling outside of function's usual place.
+
+IE:
+original in timer.cc:  interrupt->Schedule(TimerHandler, (_int) this, TimeOfNextInterrupt(), TimerInt); 
+New: (void) interrupt->Schedule(TimerHandler, (_int)timer <-- universal pointer ,400,TimerInt);
+
+
+- If need be, copy functions into other .cc file portions between '#ifdef CHANGED' and '#endif'.
+
+IE:
+#ifdef CHANGED
+static void TimerHandler(_int arg)
+{ Timer *p = (Timer *)arg; p->TimerExpired(); } <-- copied function
+....
+#endif
+
+- WIP
+
+*/
+
+
+<EXPERIMENT 1>: // EXPERIMENT 1
+FUNCTIONS TO BE STUDIED FOR EXPERIMENT 1:
+/* 
+thread.cc: Fork(),Thread(),Yield()
+scheduler.cc: contains functions used by Fork() and Yield()
+threadtest.cc: simplethread()
+
+*/
+
+// THEORY
+void
+SimpleThread(_int which)
+{
+    int num;
+    
+    for (num = 0; num < 3; num++) {
+	printf("*** thread %d looped %d times\n", (int) which, num); // runs a printf saying which current thread has looped how many times
+        currentThread->Yield(); // yields the current thread, this means:
+		// 1. The first thread in the ready Q is fetched. (nextThread = scheduler->FindNextToRun();)
+		// 2. current thread is put back to end of ready queue (scheduler->ReadyToRun(this); , see scheduler.cc)
+		// 3. The fetched thread is run. (scheduler->Run(nextThread);) 
+		
+		// repeat untill each thread's simplethread function has run 3 times.
+		/*
+		like so: (main thread = 0 ,  '->' = yield())
+		
+		0 -> 1 -> 2 -> 0 -> 1 -> 2 -> 0 -> 1 -> 2
+		
+		see table.csv and output.txt
+		
+		*/		
+    }
+}
+
+
+Thread *t1 = new Thread("child1"); // constructs a thread named 'child1'
+t1->Fork(SimpleThread, 1, 0); 
+// child1 thread, calling fork function, has the function simplethread queued into ready queue to run with arguement of '1' passed into function simplethread.
+// the '0' ^ above in Fork() represents if a thread should be joined or not ie: wait untill t1 finishes executing, '0' == do not join, '1' join.
+// see: Thread.cc Fork()
+
+Thread *t2 = new Thread("child2"); // repeat with child2
+    t2->Fork(SimpleThread, 2, 0);
+	
+SimpleThread(0); // main thread is now to run SimpleThread function with arguement 0 (ie: main thread is called thread 0)
+
+
+// NOTES ON HOW EXPERIMENT 1 ENDS:
+1.  With the last forked procedure yielding to the main thread 0 in the third loop, finish() is called. This runs: DEBUG('t', "Finishing thread %s #%i\n", getName(), pid);
+2.  It then sets threadToBeDestroyed = currentThread; which is itself.
+3.  It then runs sleep().
+4.  In sleep(): DEBUG('t', "Sleeping thread %s #%i\n", getName(), pid); is run.
+5. Since thread 1 n 2 are still in the Q, the while loop will not be triggered and it skips to: scheduler->Run(nextThread).
+6. Under scheduler->Run(nextThread), DEBUG('t', "Switching from thread %s #%i to thread %s #%i\n",oldThread->getName(), oldThread->pid, nextThread->getName(),nextThread->pid); and 
+DEBUG('t', "Now in thread %s #%i\n", currentThread->getName(), currentThread->pid); are run, this means the current thread is now 1.
+7. Then:  delete threadToBeDestroyed; is run, which calls the thread destructor on thread 0.
+8. This deletes thread 0, as shown with: DEBUG('t', "Deleting thread %s #%i\n", name, pid); running.
+9. repeat steps 1-8 with thread 1.
+10. At thread 2, the aforementioned while loop will be triggered. This runs: interrupt->Idle().
+11.  Under Idle{}, this will run: DEBUG('i', "Machine idling; checking for interrupts.\n");
+12. Since there are no interrupts, these will run: DEBUG('i', "Machine idle.  No interrupts to do.\n");
+    printf("No threads ready or runnable, and no pending interrupts.\n");
+    printf("Assuming the program completed.\n");
+13. This signifies there is nothing left and the program ends.
+
+// HOW CODE RUNS:
+void
+SimpleThread(_int which)
+{
+    int num;
+    
+    for (num = 0; num < 3; num++) {
+	printf("*** thread %d looped %d times\n", (int) which, num); 
+        currentThread->Yield();
+		
+		/*
+		Tick 30: T0 runs printf("*** thread %d looped %d times\n", (int) which, num); , yield() queue's T0 (Sends it to the back of the Q) and fetches first item in Q which is thread T1.
+		Tick 40: T1 runs printf("*** thread %d looped %d times\n", (int) which, num); , yield() queue's T1 and fetches first item in Q which is thread T2
+		Tick 50: T2 runs printf("*** thread %d looped %d times\n", (int) which, num); , yield() queue's T2 and fetches first item in Q which is thread T0
+
+		Tick 60: T0 runs printf("*** thread %d looped %d times\n", (int) which, num); , yield() queue's T0 and fetches first item in Q which is thread T1.
+		Tick 70: T1 runs printf("*** thread %d looped %d times\n", (int) which, num); , yield() queue's T1 and fetches first item in Q which is thread T2
+		Tick 80: T2 runs printf("*** thread %d looped %d times\n", (int) which, num); , yield() queue's T2 and fetches first item in Q which is thread T0
+		
+		Tick 90: T0 runs printf("*** thread %d looped %d times\n", (int) which, num); , yield() queue's T0 and fetches first item in Q which is thread T1.
+		Tick 100: T1 runs printf("*** thread %d looped %d times\n", (int) which, num); , yield() queue's T1 and fetches first item in Q which is thread T2
+		Tick 110: T2 runs printf("*** thread %d looped %d times\n", (int) which, num); , yield() queue's T2 and fetches first item in Q which is thread T0
+		
+		After 3 loops:
+		Tick 120: T0 finish()->sleep()->(switch to T1)->delete T0
+		Tick 130: T1 finish()->sleep()->(switch to T2)->delete T1
+		Tick 140: T2 finish()->sleep()->idle()->nointerrupts = Kill Program.
+		*/
+    }
+}
+
+//----------------------------------------------------------------------
+// ThreadTest
+// 	Set up a ping-pong between two threads, by forking a thread 
+//	to call SimpleThread, and then calling SimpleThread ourselves.
+//----------------------------------------------------------------------
+
+void
+ThreadTest()
+{
+    DEBUG('t', "Entering SimpleTest");
+    // each q will Q the function n id ie: simplethread , 1
+    Thread *t1 = new Thread("child1");
+    t1->Fork(SimpleThread, 1, 0); // Tick 10 Q T1
+    Thread *t2 = new Thread("child2");
+    t2->Fork(SimpleThread, 2, 0); // Tick 20 Q T2
+    SimpleThread(0); // Tick 30 Run simplethread with main thread of id '0',    main_thread will be referred to as T0
+}
+
+
+
+<EXPERIMENT 2>: // EXPERIMENT 2
+FUNCTIONS TO BE STUDIED FOR EXPERIMENT 2:
+// Thread.cc, thread.h
+Finish()
+Yield()
+
+//system.cc, timer.cc and timer.h
+TimerInterruptHandler() <--system.cc
+TimerExpired()
+TimeOfNextInterrupt()
+
+// interrupt.h and interrupt.cc
+Schedule()
+OneTick();
+CheckIfDue()
+YieldOnReturn()
+
+// How functions interact with one another, based on part b):
+When a timer interrupt is to occur (ie: at 40):
+1. OneTick() is run, which in turn runs CheckIfDue() as apart of a while loop. 
+2. CheckIfDue() then runs: DEBUG('i', "Invoking interrupt handler for the %s at time %d\n", intTypeNames[toOccur->type], toOccur->when).
+3. As CheckIfDue() runs, it will eventually call the TimerHandler() from timer.cc with: (*(toOccur->handler))(toOccur->arg).
+4. TimerHandler() then calls TimerExpired()
+5. TimerExpired() then schedules the next Timer interrupt at present_time+TimeOfNextInterrupt(), this is shown when the interrupt->Schedule(..) section runs: DEBUG('i', "Scheduling interrupt handler the %s at time = %d\n", intTypeNames[type], when);
+6. TimerExpired() then also calls TimerInterruptHandler() from system.cc with: (*handler)(arg);
+7. TimerInterruptHandler() then calls YieldOnReturn(), which sets yieldOnReturn to true.
+8. Since nothing further is called, we jump all the way back to CheckIfDue(), which then returns true.
+9. As CheckIfDue() returns true, the while loop in part 1. will loop once, then in the next loop CheckIfDue() returns false since the pending interrupt has already been delivered. This breaks the while loop.
+10.  Since yieldOnReturn has been set to true, we enter the if else section in OneTick(), which then runs yield().
+11. When yield() is run, this sends the main thread to the ready queue and fetches the first thread in the ready Q to be run.
+12. This allows for the forked threads to be run essentially.
+13. When each forked thread ends, it runs finish(), which resets the next timer interrupt, and then calls sleep()
+14. sleep() then calls for the next thread in the queue to be run. 
+(I have no idea why, but only the last thread to be called to sleep before main is specifically deleted by a destructor. probably due to how scheduler.cc->Run()->SWITCH(oldThread, nextThread); snippet works.)
+(It is a mystery)
+15. This process is repeated untill the main thread is run again.
+16. Once at the main thread, the next bunch of threads will be forked. (Since we are now back at the main section of the code, see bottom for better explaination)
+17. At some point the next timer interrupt will be due to occur, then we go back to step 1. repeat.
+
+
+PART A):
+
+// THEORY
+
+// Because part A wants us to trigger an interrupt every 40 seconds, this means at every 40 second interval:
+// The interrupt will be triggered
+// when first interrupt is triggered, all queued thread's functions (Simplethread) will be run one by one.
+// The second interrupt will be scheduled 40 seconds later.
+// each run thanks to for loop 'for (num = 0; num < 1000000; num++) {}' will take 10 ticks.
+// thus for each 10 tick one thread will be completed
+// At the second interrupt, we will jump back into the main code, where will fork the next 3 threads to Q (add thread's functions to Q).
+// The third interrupt will be scheduled 40 seconds later.
+// Each addition to the Q takes 10 ticks.
+// At the third interrupt, same thing happens as the first.
+// At the fourth interrupt, same thing happens as the second.
+// Repeat untill we reach SimpleThread(0).
+/*
+Tick 10 - 30: Fork (queue) threads 1-3 and their functions (SimpleThread)
+Tick 40: invokve interrupt, schedule next interrupt, switch to running queued threads (1-3) by calling yield().
+Tick 50-70: run queued threads (1-3), at last thread, finish() calls sleep(), which switches us back to the main program for forking threads 4-6.
+Tick 80: invokve interrupt, schedule next interrupt, call yield() <- waste
+Tick 90-110:  fork threads 4-6
+Tick 120: invokve interrupt, schedule next interrupt, switch to running queued threads (4-6) by calling yield().
+Tick 130-150: run queued threads (4-6), at last thread, finish() calls sleep(), which switches us back to the main program for forking threads 7-9.
+Tick 160: invokve interrupt, schedule next interrupt, call yield() <- waste
+Tick 170-190: fork threads 7-9
+Tick 200: invokve interrupt, schedule next interrupt, switch to running queued threads(7-9) by calling yield().
+Tick 210-230: run queued threads(7-9), at last thread, finish() calls sleep(), which switches us back to the main program.
+Tick 240: invokve interrupt, schedule next interrupt, call yield() <- waste
+Tick 250: run main thread with function SimpleThread ( SimpleThread(0);). Since nothing left, program completed
+*/
+
+// CODE TO BE EDITED
+
+//Under system.cc, set randomYield to TRUE:
+ bool randomYield = TRUE; // timer is activated by this? i changed this.
+ // This will permanently activate the function we need in Timer.cc
+ 
+ // Next, in Timer.cc copy this section in Timer() into TimerExpired().
+  interrupt->Schedule(TimerHandler, (_int) this, TimeOfNextInterrupt(), 
+		TimerInt); 
+// This will ensure TimerExpired will always schedule the next interrupt after a current interrupt is invoked..
+
+// FInally, under TimeOfNextInterrupt(), set return to permanently 40, or comment out the section under if(randomize) and set it to permanently return 40, like so:
+if (randomize)
+	return 40; // 1 + (Random() % (TimerTicks * 2)); <- original, changed to return 40
+// since randomize = true for timer to be activated
+    else
+	return TimerTicks; 
+// This ensures, since random is set to True pemanently, that 40 ticks will always be returned when timer expires in an interrupt invocation.
+
+
+PART B):
+
+// THEORY
+
+// In part b), whenever a thread is finished running (ie:  printf("Thread %d Completed.\n",(int)which);), they want the scheduled timer interrupt to be reset to the current tick + 40 ticks, ie:
+// if in tick 50, thread 1 finishes. the original scheduled timer interrupt at 80 seconds will now be at 90 seconds..
+// This saves on ticks, as when the last thread that is not 'main thread' in Q runs, it also resets the scheduled next interrupt time, that means in the next 10 Ticks:
+// it can go straight to forking, without the need to spend a whole 10 Ticks invoke interrupt, schedule the next interrupt and running yield() . like in part a)
+// thus overall shorter time needed
+/*
+Tick 10-30: Fork 1-3
+Tick 40: Invoke Interrupt, next at 80, switch to running queued threads by calling yield().
+Tick 50: Finish thread1, reset interrupt to 40 ticks later (Interrupt at 90)
+Tick 60: Finish thread2, Interrupt reset to 100
+Tick 70: Finish thread3, Interrupt reset to 110, at last thread, finish() calls sleep(), which switches us back to the main program for forking threads
+Tick 80 - 100: Fork 4-6                                  <-- Tick of 10 saved here
+Tick 110: Invoke Interrupt, next at 150, switch to running queued threads by calling yield().
+Tick 120: Finish thread4, Interrupt reset to 160
+Tick 130: Finish thread5, Interrupt reset to 170
+Tick 140: Finish thread6, Interrupt reset to 180, at last thread, finish() calls sleep(), which switches us back to the main program for forking threads
+Tick 150-170:  Fork 7-9
+Tick 180: Invoke Interrupt, next at 220, switch to running queued threads by calling yield().
+Tick 190: Finish a thread7, Interrupt reset to 230
+Tick 200: Finish a thread8, Interrupt reset to 240
+Tick 210: Finish a thread9, Interrupt reset to 250, at last thread, finish() calls sleep(), which switches us back to the main program.
+Tick 220: Run main thread with function SimpleThread ( SimpleThread(0);). Since nothing left, program completed
+<30 ticks saved!>
+
+*/  
+
+// CODE TO BE EDITED
+
+// Under threads.cc, find the finish() function portion, then:
+// Step 1. add in this code chunk after #ifdef CHANGED:
+#ifdef CHANGED			
+static void TimerHandler(_int arg)
+{ Timer *p = (Timer *)arg; p->TimerExpired(); }
+// This is a copy of a function that we will need to use.
+
+// Step 2.  Under the finish() function, under both if else results, insert this one line above sleep():
+(void) interrupt->Schedule(TimerHandler, (_int)timer ,400,TimerInt);
+// This snippet will tell the universal interrupt pointer (interrupt->) to :
+// 1. Feed the universal timer pointer (timer) to TimerHandler().
+// 2. TimerHandler() (using universal timer pointer)  signals that the current interrupt is expired and due to be replaced.
+// 3. That the next interrupt is to be 400 seconds from now, and that it is Type TimerInt (you may simply set this to 40 seconds instead)
+
+
+// Under interrupt.cc, check the schedule() function:
+// Add this snippet if you used 400 seconds from now:
+ if(fromNow == 400){
+    delete pending->Remove();
+    fromNow = fromNow / 10;} // '400' signifies that this schedule call was from a  thread finishing, and thus must be corrected.
+	
+// Add this if you used 40 seconds:
+delete pending->Remove(); // This deletes the present scheduled interrupt.
+
+// The rest of the schedule() function will schedule a new interrupt at present time + 40, thus fulfilling our requirements.
+
+
+// HOW CODE RUNS:
+Part A)
+
+void
+SimpleThread(_int which)
+{
+    int num;
+    
+    for (num = 0; num < 1000000; num++) {}
+    printf("Thread %d Completed.\n",(int)which);
+}
+
+void
+ThreadTest()
+{
+    DEBUG('t', "Entering SimpleTest"); // Interrupt Scheduled at 40
+    
+    Thread *t1 = new Thread("child1");
+    t1->Fork(SimpleThread, 1, 0); // Tick 10 Q T1
+    Thread *t2 = new Thread("child2");
+    t2->Fork(SimpleThread, 2, 0); // Tick 20 Q T2
+    Thread *t3 = new Thread("child3");
+    t3->Fork(SimpleThread, 3, 0); // Tick 30 Q T3
+	
+	// TICK 40 - INTERRUPT - NEXT SCHEDULED AT 80
+	// YIELD() RUNS:  T1 <- FIRST ITEM IN Q RETRIEVED, MAIN_THREAD ADDED TO BACK OF Q, RUNS T1
+	// T1 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T2
+	// T2 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T3
+	// T3 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), T3 DELETED, PASS ON TO MAIN_THREAD
+	
+	// PROGRAM RETURNS BACK TO HERE
+	// TICK 80 - INTERRUPT - NEXT SCHEDULED AT 120
+	
+    Thread *t4 = new Thread("child4");
+    t4->Fork(SimpleThread, 4, 0); // Tick 90 Q T4
+    Thread *t5 = new Thread("child5");
+    t5->Fork(SimpleThread, 5, 0); // Tick 100 Q T5
+    Thread *t6 = new Thread("child6");
+    t6->Fork(SimpleThread, 6, 0); // Tick 110 Q T6
+	
+	// TICK 120 - INTERRUPT - NEXT SCHEDULED AT 160
+	// YIELD() RUNS:  T4 <- FIRST ITEM IN Q RETRIEVED, MAIN_THREAD ADDED TO BACK OF Q, RUNS T4
+	// T4 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T5
+	// T5 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T6
+	// T6 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), T6 DELETED, PASS ON TO MAIN_THREAD
+	
+	// PROGRAM RETURNS BACK TO HERE
+	// TICK 160 - INTERRUPT - NEXT SCHEDULED AT 200
+	
+    Thread *t7 = new Thread("child7");
+    t7->Fork(SimpleThread, 7, 0); // Tick 170 Q T7
+    Thread *t8 = new Thread("child8");
+    t8->Fork(SimpleThread, 8, 0); // Tick 180 Q T8
+    Thread *t9 = new Thread("child9");
+    t9->Fork(SimpleThread, 9, 0); // Tick 190 Q T9
+	
+	
+	// TICK 200 - INTERRUPT - NEXT SCHEDULED AT 240
+	// YIELD() RUNS:  T7 <- FIRST ITEM IN Q RETRIEVED, MAIN_THREAD ADDED TO BACK OF Q, RUNS T7
+	// T7 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T8
+	// T8 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T9
+	// T9 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), T9 DELETED, PASS ON TO MAIN_THREAD
+	
+	// PROGRAM RETURNS BACK TO HERE
+	// TICK 240 - INTERRUPT - NEXT SCHEDULED AT 280
+
+
+    SimpleThread(0); // Tick 250: run this, program ends. as idle determines no threads, interrupts or anything in Q left.
+}
+
+Part B)
+
+void
+SimpleThread(_int which)
+{
+    int num;
+    
+    for (num = 0; num < 1000000; num++) {}
+    printf("Thread %d Completed.\n",(int)which);
+}
+
+void
+ThreadTest()
+{
+    DEBUG('t', "Entering SimpleTest"); // Interrupt Scheduled at 40
+    
+    Thread *t1 = new Thread("child1");
+    t1->Fork(SimpleThread, 1, 0); // Tick 10 Q T1
+    Thread *t2 = new Thread("child2");
+    t2->Fork(SimpleThread, 2, 0); // Tick 20 Q T2
+    Thread *t3 = new Thread("child3");
+    t3->Fork(SimpleThread, 3, 0); // Tick 30 Q T3
+	
+	// TICK 40 - INTERRUPT - NEXT SCHEDULED AT 80
+	// YIELD() RUNS:  T1 <- FIRST ITEM IN Q RETRIEVED, MAIN_THREAD ADDED TO BACK OF Q, RUNS T1
+	// TICK 50 - T1 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T2, NEXT INTERRUPT SCHEDULED AT 90
+	// TICK 60 - T2 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T3, NEXT INTERRUPT SCHEDULED AT 100
+	// TICK 70 - T3 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), T3 DELETED, PASS ON TO MAIN_THREAD, NEXT INTERRUPT SCHEDULED AT 110
+	
+	// PROGRAM RETURNS BACK TO HERE
+	// nothing runs here: ticks saved
+	
+    Thread *t4 = new Thread("child4");
+    t4->Fork(SimpleThread, 4, 0); // Tick 80 Q T4
+    Thread *t5 = new Thread("child5");
+    t5->Fork(SimpleThread, 5, 0); // Tick 90 Q T5
+    Thread *t6 = new Thread("child6");
+    t6->Fork(SimpleThread, 6, 0); // Tick 100 Q T6
+	
+	// TICK 110 - INTERRUPT - NEXT SCHEDULED AT 150
+	// YIELD() RUNS:  T4 <- FIRST ITEM IN Q RETRIEVED, MAIN_THREAD ADDED TO BACK OF Q, RUNS T4
+	// TICK 120 - T4 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T5, NEXT INTERRUPT SCHEDULED AT 160
+	// TICK 130 - T5 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T6, NEXT INTERRUPT SCHEDULED AT 170
+	// TICK 140 - T6 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), T6 DELETED, PASS ON TO MAIN_THREAD, NEXT INTERRUPT SCHEDULED AT 180
+	
+	// PROGRAM RETURNS BACK TO HERE
+	// nothing runs here: ticks saved
+	
+    Thread *t7 = new Thread("child7");
+    t7->Fork(SimpleThread, 7, 0); // Tick 150 Q T7
+    Thread *t8 = new Thread("child8");
+    t8->Fork(SimpleThread, 8, 0); // Tick 160 Q T8
+    Thread *t9 = new Thread("child9");
+    t9->Fork(SimpleThread, 9, 0); // Tick 170 Q T9
+	
+	
+	// TICK 180 - INTERRUPT - NEXT SCHEDULED AT 220
+	// YIELD() RUNS:  T7 <- FIRST ITEM IN Q RETRIEVED, MAIN_THREAD ADDED TO BACK OF Q, RUNS T7
+	// TICK 190 - T7 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T8, NEXT INTERRUPT SCHEDULED AT 230
+	// TICK 200 - T8 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), PASS ON TO T9, NEXT INTERRUPT SCHEDULED AT 240
+	// TICK 210 - T9 RUN SIMPLETHREAD FUNCTION, FINISH(), SLEEP(), T9 DELETED, PASS ON TO MAIN_THREAD, NEXT INTERRUPT SCHEDULED AT 250
+	
+	// PROGRAM RETURNS BACK TO HERE
+	// nothing runs here: ticks saved
+
+
+    SimpleThread(0); // Tick 220: run this, program ends. as idle determines no threads, interrupts or anything in Q left.
+}
+
+<EXPERIMENT 3>: // EXPERIMENT 3
+　　　　　　　_,,..-=ﾆ二7
+　　　 　r'ｱ´
+　　　　ﾉノ　　 r'ｱ'"｀ヽ.,_　_,,..-=-､　　　 _,. -rｧ
+　　　r'ｧ⌒ヽ､i7::::::::;＞''"´::￣￣｀"''＜´:::::::::!(
+　　 .||　　　　r!:::／::::::::::::::::::::::::::::::::::::::::ヽ:::::/i'
+　　 ||　 　 　 ^Y:::::;:::::i:::::::::/i::::::i:::::::;:::::::;::::Y (_
+　　 ||　　　　./i::::::i:::/!--/　|:::;ﾊ_!_::i::::::i:::::::i r'ヽ.
+　　 !!　　　 く:::L__ﾊ/-‐‐'　 ﾚ'　_!__;ﾊ::::ﾊ:::::|_,ゝ:::',
+　　 ',',ヽ.　 　ヽﾍ「7""　　　 　　 　 ｀ﾚ7´）/:::iヽ;:::i
+　　 i´｀とﾝ' ´｀ヽ!,人　　「'￣ ｀i　""7_/'´':::::::!　i:::!　　　　"What the fuck is going on"
+　　 ヽ.,_//」 ､_,ノ:::::ﾉ＞.､､,___,ﾉ_,,.イ:::!､__!7ノ__. ﾚ'
+　　　　 i　　　ゝ-ｧ'/　/)_iヽ／　/(/ゝ､.,_ノ　　￣「iｰ-､
+　　　　ﾉ〈)　　　 ｀　 /::::ソ^ヽ､/」::_r' _/ /」 　 　 　|つ-'
+　　　<.,　　_____,,,... イ::::くr-､_」:::::::::Y^ヽ､　　　　[] ',
+　　　 　￣　　ﾚ' 　 l＞-､::;;_______;;::」〉'ノヽ.　　　__　〉
+　　　（(　　　　r'ｱ'"／:::/ i　ヽ;::::ヽ｀''::ｰｧ､`''ｰ-┴'"
+　　　　　　　 ｒ'i:::／::::::/　.l　 　';:::::::::::::::::!,」
+　　　　　　　　`ゝ､:::::/　　l　　　ヽ;::::::::::/」
+　　　　　　　　　 └へ>､,_!_______,,..>ｧﾆﾝ!
+　　　　　　　　　　　　'r-- 'i　　 ￣ヽ,_ノ
+　　　　　　　　　　　　ヽ二ﾉ
